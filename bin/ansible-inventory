@@ -26,9 +26,12 @@ import errno
 import yaml
 
 import ansible.constants as C
-from ansible import utils
+from ansible.utils.cli import base_parser
+from ansible.parsing import DataLoader
+from ansible.vars import VariableManager
 from ansible import errors
-from ansible import inventory
+from ansible.inventory import Inventory
+from ansible.parsing.utils.jsonify import jsonify
 
 ########################################################
 
@@ -44,14 +47,11 @@ class Cli(object):
 
     def parse(self):
 
-        parser = utils.SortedOptParser(
+        parser = base_parser(
             usage='%prog <host-pattern> [options]'
         )
         parser.add_option('-l', '--limit', default=C.DEFAULT_SUBSET, dest='subset',
             help='further limit selected hosts to an additional pattern')
-        parser.add_option('-i', '--inventory-file', dest='inventory',
-            help="specify inventory host file (default=%s)" % C.DEFAULT_HOST_LIST,
-            default=C.DEFAULT_HOST_LIST)
         # dump
         parser.add_option('-y', '--yaml', dest='yaml', action='store_true',
             help="dump variables in yaml format")
@@ -98,7 +98,9 @@ class Cli(object):
         if self.options.host:
             return {}
 
-        self.inventory = inventory.Inventory(self.options.inventory)
+        loader = DataLoader()
+        variable_manager = VariableManager()
+        self.inventory = Inventory(loader=loader, variable_manager=variable_manager, host_list=self.options.inventory)
         if self.options.subset:
             self.inventory.subset(self.options.subset)
         hosts = self.inventory.list_hosts(self.options.pattern)
@@ -119,20 +121,20 @@ class Cli(object):
             results[group.name] = dict(children=child_groups_list, hosts=host_list)
             # get groupvars into result set
             if not self.options.merge:
-                results[group.name]['vars'] = group.get_variables()
+                results[group.name]['vars'] = group.get_vars()
 
         # get hostvars into result set
         for host in self.inventory.get_hosts():
             if not self.options.merge:
                 results['_meta']['hostvars'][host.name] = host.vars
             else:
-                results['_meta']['hostvars'][host.name] = host.get_variables()
+                results['_meta']['hostvars'][host.name] = host.get_vars()
 
 
         if self.options.yaml:
             print yaml.safe_dump(results)
         else:
-            print utils.jsonify(results, format=self.options.pretty)
+            print jsonify(results, format=self.options.pretty)
 
         return results
 
